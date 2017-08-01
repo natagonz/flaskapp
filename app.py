@@ -1,5 +1,5 @@
 from flask import Flask, render_template,flash, redirect, url_for, session, request, logging
-from data import Articles
+#from data import Articles
 from flask_mysqldb import MySQL
 from wtforms import Form, StringField, TextAreaField, PasswordField, validators
 from passlib.hash import sha256_crypt
@@ -16,7 +16,7 @@ app.config["MYSQL_CURSORCLASS"] = "DictCursor"
 mysql = MySQL(app)
 
 
-Articles = Articles()
+#Articles = Articles()
 
 app.debug = True
 
@@ -31,14 +31,29 @@ def about():
 
 @app.route("/articles")
 def articles():
-	return render_template("articles.html", articles = Articles)
-#membuat rute halaman artikel,semua artikel yang ada dari data.py dan passing variable articles di articles.html
+	cur = mysql.connection.cursor()
+	result = cur.execute("SELECT * FROM articles")
+	articles = cur.fetchall()
+
+	if result > 0 :
+		return render_template("articles.html",articles=articles)
+	else:
+		msg = "No article found"
+		return render_template("articles.html",msg=msg)
 
 
+	cur.close()
+
+
+
+#membuat rute untuk artcle sesuai id,dengan parameter id dan passing id variable di template
 @app.route("/article/<string:id>")
 def article(id):
-	return render_template("article.html", id = id)
-#membuat rute untuk artcle sesuai id,dengan parameter id dan passing id variable di template
+	cur = mysql.connection.cursor()
+	result = cur.execute("SELECT * FROM articles WHERE id =%s", [id])
+	article = cur.fetchone()
+
+	return render_template("article.html", article = article)
 
 
 
@@ -122,12 +137,6 @@ def login():
 	return render_template("login.html")
 
 
-#membuat route logout
-@app.route("/logout")
-def logout():
-	session.clear()
-	flash("now you loggout","success")
-	return redirect(url_for("main"))
 
 #cek apakah user log in,bila tidak login tdk bisa melihat dashboard(flask decorator documentation)
 def login_required(f):
@@ -141,20 +150,62 @@ def login_required(f):
     return wrap
 
 
+#membuat route logout
+@app.route("/logout")
+@login_required
+def logout():
+	session.clear()
+	flash("now you loggout","success")
+	return redirect(url_for("main"))
 
 
 
 #membuat rute  dashboard
-@app.route("/dashboard")
+@app.route("/dashboard/")
 @login_required #memanggil fungsi login_required agar mengunci halaman dashboard hanya untuk loggin user
 def dashboard() :
-	return render_template("dashboard.html")
+	cur = mysql.connection.cursor()
+	result = cur.execute("SELECT * FROM articles")
+	articles = cur.fetchall()
+
+	if result > 0 :
+		return render_template("dashboard.html",articles=articles)
+	else:
+		msg = "No article found"
+		return render_template("dashboard.html",msg=msg)
+
+
+	cur.close()
 
 
 
 
 
+#membuat form article dengan WTF form
+class ArticleForm(Form):
+	title = StringField("Title", [validators.Length(min=1, max=50)] )
+	body = TextAreaField("Body", [validators.Length(min=30)])
 
+
+#menambah rute article
+@app.route("/add_article",methods=["GET", "POST"])
+@login_required #memanggil fungsi login_required agar mengunci halaman hanya untuk loggin user
+def add_article() :
+	form = ArticleForm(request.form)
+	if request.method == "POST" and form.validate():
+		title = form.title.data
+		body = form.body.data
+
+		cur = mysql.connection.cursor()
+ 		cur.execute("INSERT INTO articles(title,body,author) VALUES (%s,%s,%s)",(title,body,session["username"]))
+ 		mysql.connection.commit()
+ 		cur.close()
+
+ 		flash("Article created", "success")
+ 		return redirect(url_for("dashboard"))
+
+ 	return render_template("add_article.html", form=form)
+	
 
 
 
