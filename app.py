@@ -4,8 +4,16 @@ from flask_mysqldb import MySQL
 from wtforms import Form, StringField, TextAreaField, PasswordField, validators
 from passlib.hash import sha256_crypt
 from functools import wraps
+from flask_mail import Mail, Message 
+from itsdangerous import URLSafeTimedSerializer,SignatureExpired
+
+
 
 app = Flask(__name__)
+app.config.from_pyfile("config.cfg") #config for mail
+mail = Mail(app)
+s = URLSafeTimedSerializer("secret")
+
 #mengatur mysql
 app.config["MYSQL_HOST"] = "localhost"
 app.config["MYSQL_USER"] = "root"
@@ -205,7 +213,151 @@ def add_article() :
  		return redirect(url_for("dashboard"))
 
  	return render_template("add_article.html", form=form)
+
+ #menambah fungsi edit article
+@app.route("/dashboard/edit_article/<string:id>",methods=["GET", "POST"])
+@login_required #memanggil fungsi login_required agar mengunci halaman hanya untuk loggin user
+def edit_article(id) :
+	#agar form terisi langsung untuk di edit
+	cur = mysql.connection.cursor()
+	result = cur.execute("SELECT * FROM articles WHERE id=%s", [id])
+	article = cur.fetchone()
+	form = ArticleForm(request.form)
+
+	form.title.data = article["title"]
+	form.body.data = article["body"]
+
+	if request.method == "POST" and form.validate():
+		title = request.form["title"]
+		body = request.form["body"]
+
+		cur = mysql.connection.cursor()
+ 		cur.execute("UPDATE articles SET title=%s, body=%s WHERE id=%s",[title,body,id])
+ 		mysql.connection.commit()
+ 		cur.close()
+
+ 		flash("Article Updated", "success")
+ 		return redirect(url_for("dashboard"))
+
+ 	return render_template("edit_article.html", form=form)
+
+ #delete article
+@app.route("/delete_article/<string:id>",methods=["POST"])
+@login_required #memanggil fungsi login_required agar mengunci halaman hanya untuk loggin user
+def delete_article(id) :
+	#agar form terisi langsung untuk di edit
+	cur = mysql.connection.cursor()
+	result = cur.execute("DELETE FROM articles WHERE id=%s", [id])
+	article = cur.fetchone()
+	mysql.connection.commit()
+ 	cur.close()
+
+ 	flash("Article deleted", "success")
+ 	return redirect(url_for("dashboard"))
+
+
+
+
+
+
+
+
+
+
+class ForgotPasswordForm(Form):
+	password = PasswordField("Password",
+		[
+		validators.DataRequired(),
+		validators.EqualTo("confirm", message="Password do not match")
+		])
+	confirm = PasswordField("Confirm password")
+
+#forgot password
+@app.route("/forgot_password", methods=["GET", "POST"])
+def forgot():
+	if request.method == "POST":
+		email = request.form["email"]
+
+		#membuat cursor
+		cur = mysql.connection.cursor()
+
+		#mencocokan username saat request di form dengn username di mysql
+		result = cur.execute("SELECT * FROM users WHERE users_email = %s" , [email])
+
+		#mendapatkan data yang tersimpan
+		if result > 0 :
+			token = s.dumps(email, salt="email-confirm")
+
+			msg = Message("confirm email", sender="makinrame@gmail.com", recipients=[email])
+
+			link = url_for("confirm", token=token, _external=True)
+
+			msg.body = "your link is {}".format(link)
+			mail.send(msg)
+			return "You entered email is {} and the token is {}". format(email, token)
+		else :
+			return " Not match "
+
+	return render_template("forgot.html")
+
+
 	
+
+@app.route("/confirm_password/<token>", methods=["GET","POST"])
+def confirm(token):
+	form = ForgotPasswordForm(request.form)
+	try:
+		email = s.loads(token, salt="email-confirm", max_age = 600)
+	
+		if request.method == "POST" and form.validate():
+			password = sha256_crypt.encrypt(str(form.password.data))
+			cur = mysql.connection.cursor()
+ 			cur.execute("UPDATE users SET users_password=%s WHERE users_email=%s",[password, email])
+ 			mysql.connection.commit()
+ 			cur.close()
+
+ 			flash("password Updated", "success")
+ 			return redirect(url_for("main"))
+	except :
+		return "expired"
+
+	"""try:
+		emails = s.loads(token, salt="email-confirm", max_age = 600)
+	except SignatureExpired :
+		return "Token expired"""
+
+	
+
+ 	return render_template("password_reset.html", form=form)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
